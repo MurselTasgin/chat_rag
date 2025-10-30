@@ -94,7 +94,8 @@ class DocumentTracker:
         file_path: str,
         doc_id: str,
         chunk_count: int,
-        metadata: Optional[Dict] = None
+        metadata: Optional[Dict] = None,
+        kb_id: Optional[str] = None
     ):
         """
         Mark a document as ingested
@@ -104,6 +105,7 @@ class DocumentTracker:
             doc_id: Document ID
             chunk_count: Number of chunks created
             metadata: Additional metadata
+            kb_id: Knowledge base ID this document belongs to
         """
         abs_path = os.path.abspath(file_path)
         file_hash = self._compute_file_hash(file_path)
@@ -114,6 +116,7 @@ class DocumentTracker:
             'chunk_count': chunk_count,
             'file_size': os.path.getsize(file_path),
             'ingested_at': datetime.now().isoformat(),
+            'kb_id': kb_id,  # Store KB ID with document
             'metadata': metadata or {}
         }
         
@@ -153,14 +156,25 @@ class DocumentTracker:
             del self.ingested_docs[abs_path]
             self._save_tracking_data()
     
-    def get_statistics(self) -> Dict:
+    def get_statistics(self, kb_id: Optional[str] = None) -> Dict:
         """
         Get statistics about ingested documents
+        
+        Args:
+            kb_id: Optional knowledge base ID to filter statistics
         
         Returns:
             Dictionary with statistics
         """
-        if not self.ingested_docs:
+        # Filter by KB if kb_id is provided
+        filtered_docs = self.ingested_docs
+        if kb_id is not None:
+            filtered_docs = {
+                path: doc for path, doc in self.ingested_docs.items()
+                if doc.get('kb_id') == kb_id
+            }
+        
+        if not filtered_docs:
             return {
                 'total_documents': 0,
                 'total_chunks': 0,
@@ -168,11 +182,11 @@ class DocumentTracker:
             }
         
         return {
-            'total_documents': len(self.ingested_docs),
-            'total_chunks': sum(doc['chunk_count'] for doc in self.ingested_docs.values()),
-            'total_size_bytes': sum(doc['file_size'] for doc in self.ingested_docs.values()),
-            'oldest_ingestion': min(doc['ingested_at'] for doc in self.ingested_docs.values()),
-            'latest_ingestion': max(doc['ingested_at'] for doc in self.ingested_docs.values())
+            'total_documents': len(filtered_docs),
+            'total_chunks': sum(doc['chunk_count'] for doc in filtered_docs.values()),
+            'total_size_bytes': sum(doc['file_size'] for doc in filtered_docs.values()),
+            'oldest_ingestion': min(doc['ingested_at'] for doc in filtered_docs.values()),
+            'latest_ingestion': max(doc['ingested_at'] for doc in filtered_docs.values())
         }
     
     def clear_all(self):
@@ -180,15 +194,24 @@ class DocumentTracker:
         self.ingested_docs = {}
         self._save_tracking_data()
 
-    def get_all_documents(self) -> List[Dict]:
+    def get_all_documents(self, kb_id: Optional[str] = None) -> List[Dict]:
         """
         Get list of all ingested documents with their metadata
+        
+        Args:
+            kb_id: Optional knowledge base ID to filter documents
 
         Returns:
             List of document dictionaries
         """
         documents = []
         for file_path, doc_data in self.ingested_docs.items():
+            doc_kb_id = doc_data.get('kb_id')
+            
+            # Filter by KB if kb_id is provided
+            if kb_id is not None and doc_kb_id != kb_id:
+                continue
+                
             documents.append({
                 'file_path': file_path,
                 'file_name': os.path.basename(file_path),
@@ -197,6 +220,7 @@ class DocumentTracker:
                 'file_size': doc_data.get('file_size', 0),
                 'ingested_at': doc_data.get('ingested_at', ''),
                 'file_hash': doc_data.get('file_hash', ''),
+                'kb_id': doc_kb_id,
                 'metadata': doc_data.get('metadata', {})
             })
 

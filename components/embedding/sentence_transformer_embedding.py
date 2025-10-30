@@ -2,8 +2,17 @@
 """
 Sentence Transformer embedding implementation
 """
+import os
 from typing import List, Union
 import numpy as np
+
+# Set OpenMP environment variables BEFORE importing SentenceTransformer
+# This prevents OMP errors when multiple instances are created
+os.environ.setdefault('OMP_NUM_THREADS', '1')
+os.environ.setdefault('TOKENIZERS_PARALLELISM', 'false')
+os.environ.setdefault('MKL_NUM_THREADS', '1')
+os.environ.setdefault('NUMEXPR_NUM_THREADS', '1')
+
 from sentence_transformers import SentenceTransformer
 from .base import BaseEmbedding
 from core.exceptions import EmbeddingException
@@ -22,7 +31,9 @@ class SentenceTransformerEmbedding(BaseEmbedding):
         self.model_name = model_name
         
         try:
-            self.model = SentenceTransformer(model_name)
+            # Use CPU device and disable multiprocessing to avoid OMP conflicts
+            # Set these environment variables here as a fallback (should be set in app.py already)
+            self.model = SentenceTransformer(model_name, device='cpu')
         except Exception as e:
             raise EmbeddingException(f"Failed to load model {model_name}: {e}")
     
@@ -34,9 +45,12 @@ class SentenceTransformerEmbedding(BaseEmbedding):
     ) -> Union[np.ndarray, List[np.ndarray]]:
         """Encode text(s) to embedding(s)"""
         try:
+            # Disable multiprocessing and use single-threaded encoding to avoid OMP conflicts
             embeddings = self.model.encode(
                 texts,
                 convert_to_tensor=convert_to_tensor,
+                show_progress_bar=False,
+                normalize_embeddings=False,
                 **kwargs
             )
             return embeddings

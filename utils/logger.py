@@ -97,10 +97,31 @@ class RAGLogger:
         logger.debug("-"*80)
     
     @staticmethod
-    def log_retrieval_results(logger, query, results):
+    def log_retrieval_results(
+        logger, 
+        query, 
+        results,
+        vectordb_name: str = None,
+        embedding_model_name: str = None,
+        retrieval_method: str = None,
+        reranker_name: str = None,
+        top_k: int = None
+    ):
         """Log retrieval results with full content for each chunk (human-readable)"""
         logger.debug("="*80)
         logger.debug("RETRIEVAL RESULTS")
+        # Log retrieval configuration details at the top
+        if vectordb_name:
+            logger.debug(f"Vector DB: {vectordb_name}")
+        if embedding_model_name:
+            logger.debug(f"Embedding Model: {embedding_model_name}")
+        if retrieval_method:
+            logger.debug(f"Retrieval Method: {retrieval_method.upper()}")
+        if reranker_name:
+            logger.debug(f"Reranker: {reranker_name}")
+        if top_k is not None:
+            logger.debug(f"Top-K: {top_k}")
+        logger.debug("-" * 80)
         logger.debug(f"Query (clarified): {query}")
         logger.debug(f"Number of results: {len(results)}")
         for i, result in enumerate(results, 1):

@@ -2,6 +2,14 @@
 """
 Cross-encoder based reranking
 """
+import os
+# Set OpenMP environment variables BEFORE importing CrossEncoder
+# This prevents OMP errors when multiple instances are created
+os.environ.setdefault('OMP_NUM_THREADS', '1')
+os.environ.setdefault('TOKENIZERS_PARALLELISM', 'false')
+os.environ.setdefault('MKL_NUM_THREADS', '1')
+os.environ.setdefault('NUMEXPR_NUM_THREADS', '1')
+
 from typing import List
 import numpy as np
 from sentence_transformers import CrossEncoder
@@ -30,6 +38,8 @@ class CrossEncoderReranker(BaseReranker):
         self.logger = get_logger("CrossEncoderReranker")
         
         try:
+            # Default to CPU to avoid OMP conflicts
+            device = device or 'cpu'
             self.model = CrossEncoder(model_name, device=device)
         except Exception as e:
             raise RAGException(f"Failed to load cross-encoder model {model_name}: {e}")

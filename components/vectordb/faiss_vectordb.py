@@ -264,6 +264,49 @@ class FaissVectorDB(BaseVectorDB):
         except Exception as e:
             raise VectorDBException(f"Failed to delete by doc_id: {e}")
 
+    def get_chunks_paginated(
+        self,
+        offset: int = 0,
+        limit: int = 20,
+        filter_dict: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Get paginated chunks with optional filtering"""
+        try:
+            items = self.meta.get("items", {})
+            all_chunks = []
+            
+            # Filter chunks if filter_dict is provided
+            for item_data in items.values():
+                metadata = item_data.get("metadata", {})
+                
+                # Apply filter if provided
+                if filter_dict:
+                    # Check if all filter conditions match
+                    if not all(metadata.get(k) == v for k, v in filter_dict.items()):
+                        continue
+                
+                # Build chunk dict
+                all_chunks.append({
+                    "chunk_id": item_data["chunk_id"],
+                    "content": item_data["content"],
+                    "metadata": metadata
+                })
+            
+            # Apply pagination
+            total = len(all_chunks)
+            start = offset
+            end = min(offset + limit, total)
+            paginated_chunks = all_chunks[start:end]
+            
+            return {
+                "chunks": paginated_chunks,
+                "total": total,
+                "offset": offset,
+                "limit": limit
+            }
+        except Exception as e:
+            raise VectorDBException(f"Failed to get paginated chunks: {e}")
+
     def get_name(self) -> str:
         return "FAISS"
 

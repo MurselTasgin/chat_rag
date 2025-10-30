@@ -651,6 +651,7 @@
         <div class="header">
             <h1>📚 Document Management</h1>
             <div class="header-buttons">
+                <button class="btn btn-primary" onclick="showCreateKB()">➕ New KB</button>
                 <button class="btn btn-secondary" onclick="location.href='/'">← Back to Chat</button>
             </div>
         </div>
@@ -664,6 +665,10 @@
             <div class="upload-section" style="border: 2px solid #667eea; margin-bottom: 20px;">
                 <h3 style="margin-bottom: 15px; color: #333;">🔍 Search Documents & Chunks</h3>
                 <div class="upload-area">
+                    <div>
+                        <label class="form-label">Knowledge Base</label>
+                        <select id="kbSelectDocs" style="padding: 12px 20px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 15px; outline: none; cursor: pointer; min-width:220px;"></select>
+                    </div>
                     <div class="file-input-wrapper">
                         <input
                             type="text"
@@ -701,6 +706,9 @@
                 </div>
                 <div class="supported-formats">
                     Supported formats: PDF, TXT, MD, DOCX, PNG, JPG, JPEG
+                </div>
+                <div id="kbWarningMsg" style="display: none; padding: 10px; margin-top: 10px; background-color: #fff3cd; border: 1px solid #ffc107; border-radius: 8px; color: #856404;">
+                    ⚠️ Please select a Knowledge Base before uploading documents.
                 </div>
                 <div class="upload-progress" id="uploadProgress">
                     <div class="progress-bar">
@@ -803,25 +811,97 @@
         </div>
     </div>
 
+    <!-- Create KB Modal -->
+    <div class="modal" id="kbModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>➕ Create Knowledge Base</h2>
+                <button class="btn-close" onclick="hideCreateKB()">×</button>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Name</label>
+                <input id="kbName" type="text" style="width:100%; padding:10px; border:2px solid #e0e0e0; border-radius:8px;">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Embedding Model</label>
+                <select id="kbEmbedding" style="width:100%; padding:10px; border:2px solid #e0e0e0; border-radius:8px;">
+                    <option value="">Loading...</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Vector DB Provider</label>
+                <select id="kbVDB" style="width:100%; padding:10px; border:2px solid #e0e0e0; border-radius:8px;">
+                    <option value="">Loading...</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Vector DB Path</label>
+                <input id="kbVDBPath" type="text" placeholder="./chroma_db or ./faiss_db/mykb" style="width:100%; padding:10px; border:2px solid #e0e0e0; border-radius:8px;">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Retrieval Method</label>
+                <select id="kbRetrieval" style="width:100%; padding:10px; border:2px solid #e0e0e0; border-radius:8px;">
+                    <option value="">Loading...</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Chunker (optional)</label>
+                <select id="kbChunkerType" style="width:100%; padding:10px; border:2px solid #e0e0e0; border-radius:8px;">
+                    <option value="">Loading...</option>
+                </select>
+                <small>Params (JSON):</small>
+                <textarea id="kbChunkerParams" class="form-textarea" placeholder='{"chunk_size":300, "chunk_overlap":60}'></textarea>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-cancel" onclick="hideCreateKB()">Cancel</button>
+                <button type="button" class="btn btn-save" onclick="createKB()">Create</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         let selectedFile = null;
         let currentDocId = null;
+        let currentDocKbId = null;
         let isSearchActive = false;
         let currentSearchQuery = '';
         let currentSearchType = 'keyword';
+        let kbOptions = null;
 
+        function checkUploadEnabled() {
+            const uploadBtn = document.getElementById('uploadBtn');
+            const warningMsg = document.getElementById('kbWarningMsg');
+            const kbSelect = document.getElementById('kbSelectDocs');
+            const kbId = kbSelect ? kbSelect.value : '';
+            const hasFile = selectedFile !== null;
+            
+            if (!kbId || kbId.trim() === '') {
+                // No KB selected - disable upload and show warning
+                uploadBtn.disabled = true;
+                if (hasFile) {
+                    warningMsg.style.display = 'block';
+                } else {
+                    warningMsg.style.display = 'none';
+                }
+            } else {
+                // KB selected - enable upload if file is selected, hide warning
+                warningMsg.style.display = 'none';
+                uploadBtn.disabled = !hasFile;
+            }
+        }
+        
         function handleFileSelect(event) {
             selectedFile = event.target.files[0];
             const fileName = document.getElementById('fileName');
-            const uploadBtn = document.getElementById('uploadBtn');
 
             if (selectedFile) {
                 fileName.textContent = selectedFile.name;
-                uploadBtn.disabled = false;
             } else {
                 fileName.textContent = 'No file selected';
-                uploadBtn.disabled = true;
             }
+            
+            // Check if upload should be enabled (requires both file and KB)
+            checkUploadEnabled();
         }
 
         async function uploadDocument() {
@@ -839,6 +919,7 @@
 
             const formData = new FormData();
             formData.append('file', selectedFile);
+            formData.append('kb_id', document.getElementById('kbSelectDocs').value || '');
 
             try {
                 const response = await fetch('/api/documents/upload', {
@@ -857,6 +938,9 @@
                     document.getElementById('fileInput').value = '';
                     document.getElementById('fileName').textContent = 'No file selected';
                     selectedFile = null;
+                    
+                    // Recheck upload enabled state
+                    checkUploadEnabled();
 
                     // Reload documents
                     setTimeout(() => {
@@ -871,7 +955,8 @@
                 showAlert('error', 'Upload failed: ' + error.message);
                 progress.classList.remove('active');
             } finally {
-                uploadBtn.disabled = false;
+                // Recheck upload enabled state (considering both file and KB selection)
+                checkUploadEnabled();
             }
         }
 
@@ -880,7 +965,11 @@
             container.innerHTML = '<div class="loading"><div class="loading-spinner"></div><p>Loading documents...</p></div>';
 
             try {
-                const response = await fetch('/api/documents');
+                const kbSelect = document.getElementById('kbSelectDocs');
+                const kbId = kbSelect ? kbSelect.value : null;
+                const url = kbId && kbId.trim() !== '' ? `/api/documents?kb_id=${encodeURIComponent(kbId)}` : '/api/documents';
+                
+                const response = await fetch(url);
                 const data = await response.json();
 
                 if (data.success) {
@@ -894,7 +983,7 @@
             }
         }
 
-        function displayDocuments(documents) {
+        async function displayDocuments(documents) {
             const container = document.getElementById('documentsContainer');
 
             if (documents.length === 0) {
@@ -902,20 +991,42 @@
                 return;
             }
 
+            // Fetch KB list to map IDs to names
+            let kbMap = {};
+            try {
+                const kbRes = await fetch('/api/kb');
+                const kbData = await kbRes.json();
+                if (kbData.success && kbData.knowledge_bases) {
+                    kbMap = {};
+                    kbData.knowledge_bases.forEach(kb => {
+                        kbMap[kb.kb_id] = kb.name;
+                    });
+                }
+            } catch (e) {
+                console.error('Failed to load KB names:', e);
+            }
+
             const docsHTML = documents.map(doc => {
                 const sizeKB = (doc.file_size / 1024).toFixed(2);
                 const date = new Date(doc.ingested_at).toLocaleString();
+                const kbName = doc.kb_id && kbMap[doc.kb_id] ? kbMap[doc.kb_id] : (doc.kb_id || 'Default KB');
 
                 return `
-                    <div class="document-card" onclick="viewDocument('${doc.doc_id}')">
+                    <div class="document-card" onclick="viewDocument('${doc.doc_id}', '${doc.kb_id || ''}')">
                         <div class="document-header">
                             <div class="document-title">${escapeHtml(doc.file_name)}</div>
                             <div class="document-actions" onclick="event.stopPropagation()">
-                                <button class="btn-small btn-view" onclick="viewDocument('${doc.doc_id}')">View</button>
-                                <button class="btn-small btn-delete" onclick="deleteDocument('${doc.doc_id}', '${escapeHtml(doc.file_name)}')">Delete</button>
+                                <button class="btn-small btn-view" onclick="viewDocument('${doc.doc_id}', '${doc.kb_id || ''}')">View</button>
+                                <button class="btn-small btn-delete" onclick="deleteDocument('${doc.doc_id}', '${escapeHtml(doc.file_name)}', '${doc.kb_id || ''}')">Delete</button>
                             </div>
                         </div>
                         <div class="document-meta">
+                            ${doc.kb_id ? `
+                            <div class="meta-row">
+                                <span class="meta-label">Knowledge Base:</span>
+                                <span>${escapeHtml(kbName)}</span>
+                            </div>
+                            ` : ''}
                             <div class="meta-row">
                                 <span class="meta-label">Chunks:</span>
                                 <span>${doc.chunk_count}</span>
@@ -952,8 +1063,9 @@
             document.getElementById('totalSize').textContent = (totalSize / (1024 * 1024)).toFixed(2);
         }
 
-        async function viewDocument(docId) {
+        async function viewDocument(docId, docKbId) {
             currentDocId = docId;
+            currentDocKbId = docKbId || null;
 
             // Hide documents view, show chunks view
             document.getElementById('documentsView').classList.remove('active');
@@ -963,7 +1075,15 @@
             container.innerHTML = '<div class="loading"><div class="loading-spinner"></div><p>Loading chunks...</p></div>';
 
             try {
-                const response = await fetch(`/api/documents/${docId}/chunks`);
+                // Use the document's KB ID if provided, otherwise fall back to selected KB
+                let kbId = docKbId && docKbId.trim() !== '' ? docKbId : null;
+                if (!kbId) {
+                    const kbSelect = document.getElementById('kbSelectDocs');
+                    kbId = kbSelect ? kbSelect.value : null;
+                }
+                
+                const url = `/api/documents/${docId}/chunks${kbId && kbId.trim() !== '' ? '?kb_id=' + encodeURIComponent(kbId) : ''}`;
+                const response = await fetch(url);
                 const data = await response.json();
 
                 if (data.success) {
@@ -1028,13 +1148,22 @@
             document.getElementById('chunksView').classList.remove('active');
             document.getElementById('documentsView').classList.add('active');
             currentDocId = null;
+            currentDocKbId = null;
         }
 
-        async function deleteDocument(docId, fileName) {
+        async function deleteDocument(docId, fileName, docKbId) {
             if (!confirm(`Delete "${fileName}" and all its chunks?`)) return;
 
             try {
-                const response = await fetch(`/api/documents/${docId}`, {
+                // Use the document's KB ID if provided, otherwise fall back to selected KB
+                let kbId = docKbId && docKbId.trim() !== '' ? docKbId : null;
+                if (!kbId) {
+                    const kbSelect = document.getElementById('kbSelectDocs');
+                    kbId = kbSelect ? kbSelect.value : null;
+                }
+                
+                const url = `/api/documents/${docId}${kbId && kbId.trim() !== '' ? '?kb_id=' + encodeURIComponent(kbId) : ''}`;
+                const response = await fetch(url, {
                     method: 'DELETE'
                 });
 
@@ -1087,7 +1216,7 @@
                     hideEditModal();
                     showAlert('success', 'Chunk updated successfully');
                     if (currentDocId) {
-                        viewDocument(currentDocId);
+                        viewDocument(currentDocId, currentDocKbId);
                     }
                 } else {
                     showAlert('error', 'Failed to update: ' + data.error);
@@ -1110,7 +1239,7 @@
                 if (data.success) {
                     showAlert('success', 'Chunk deleted successfully');
                     if (currentDocId) {
-                        viewDocument(currentDocId);
+                        viewDocument(currentDocId, currentDocKbId);
                     }
                 } else {
                     showAlert('error', 'Failed to delete: ' + data.error);
@@ -1151,9 +1280,15 @@
             const searchInput = document.getElementById('searchInput');
             const searchType = document.getElementById('searchType').value;
             const searchText = searchInput.value.trim();
+            const kbId = document.getElementById('kbSelectDocs').value || null;
 
             if (!searchText) {
                 showAlert('error', 'Please enter a search query');
+                return;
+            }
+            
+            if (!kbId || kbId.trim() === '') {
+                showAlert('error', 'Please select a knowledge base before searching');
                 return;
             }
 
@@ -1172,6 +1307,7 @@
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             query: searchText,
+                            kb_id: kbId,
                             offset: 0,
                             limit: 100  // Get more results for search
                         })
@@ -1183,19 +1319,20 @@
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             query: searchText,
+                            kb_id: kbId,
                             offset: 0,
                             limit: 100
                         })
                     });
                     data = await response.json();
                 } else {
-                    const response = await fetch(`/api/chunks?search=${encodeURIComponent(searchText)}&offset=0&limit=100`);
+                    const response = await fetch(`/api/chunks?search=${encodeURIComponent(searchText)}&offset=0&limit=100&kb_id=${encodeURIComponent(kbId)}`);
                     data = await response.json();
                 }
 
                 if (data.success) {
                     const showSimilarity = (searchType === 'vector');
-                    displaySearchResults(data.chunks, showSimilarity, searchText);
+                    displaySearchResults(data.chunks, showSimilarity, searchText, data.search_metadata);
                 } else {
                     container.innerHTML = `<div class="empty-state"><h3>Error</h3><p>${data.error}</p></div>`;
                 }
@@ -1204,7 +1341,7 @@
             }
         }
 
-        function displaySearchResults(chunks, showSimilarity, searchQuery) {
+        function displaySearchResults(chunks, showSimilarity, searchQuery, searchMetadata) {
             const container = document.getElementById('documentsContainer');
 
             if (chunks.length === 0) {
@@ -1225,6 +1362,27 @@
                 chunksByDoc[docId].chunks.push(chunk);
             });
 
+            // Build search metadata display
+            let searchInfoHTML = '';
+            if (searchMetadata) {
+                const kbName = searchMetadata.kb_name || 'Unknown KB';
+                const embeddingModel = searchMetadata.embedding_model || 'N/A';
+                const vectorDb = searchMetadata.vector_db || 'N/A';
+                const searchMethod = searchMetadata.search_method || 'unknown';
+                
+                searchInfoHTML = `
+                    <div style="background: #f8f9fa; padding: 12px 20px; border-radius: 8px; margin-bottom: 15px; font-size: 13px; color: #555;">
+                        <div style="display: flex; flex-wrap: wrap; gap: 20px;">
+                            <div><strong>Knowledge Base:</strong> ${escapeHtml(kbName)}</div>
+                            <div><strong>Embedding Model:</strong> ${escapeHtml(embeddingModel)}</div>
+                            <div><strong>Vector DB:</strong> ${escapeHtml(vectorDb)}</div>
+                            <div><strong>Search Method:</strong> ${escapeHtml(searchMethod.toUpperCase())}</div>
+                            <div><strong>Search Query:</strong> "${escapeHtml(searchQuery)}"</div>
+                        </div>
+                    </div>
+                `;
+            }
+
             let resultsHTML = `
                 <div class="search-results-header">
                     <div>
@@ -1232,6 +1390,7 @@
                         <div class="search-results-count">${chunks.length} chunk${chunks.length !== 1 ? 's' : ''} found across ${Object.keys(chunksByDoc).length} document${Object.keys(chunksByDoc).length !== 1 ? 's' : ''}</div>
                     </div>
                 </div>
+                ${searchInfoHTML}
             `;
 
             // Display results grouped by document
@@ -1249,6 +1408,9 @@
                     const metadata = chunk.metadata || {};
                     const similarity = chunk.similarity_score;
                     const distance = chunk.distance;
+                    const searchMeta = chunk.search_metadata || searchMetadata || {};
+                    // Get KB ID from metadata or use selected KB
+                    const chunkKbId = searchMeta.kb_id || metadata.kb_id || (document.getElementById('kbSelectDocs') ? document.getElementById('kbSelectDocs').value : '');
 
                     // Color code based on similarity
                     let badgeClass = 'similarity-low';
@@ -1278,13 +1440,24 @@
                                     ` : ''}
                                 </div>
                                 <div class="chunk-actions">
-                                    <button class="btn-small btn-view" onclick="viewDocument('${metadata.doc_id}')">View Doc</button>
+                                    <button class="btn-small btn-view" onclick="viewDocument('${metadata.doc_id}', '${chunkKbId || ''}')">View Doc</button>
                                     <button class="btn-small btn-edit" onclick="editChunk('${chunk.chunk_id}')">Edit</button>
                                     <button class="btn-small btn-delete" onclick="deleteChunkFromSearch('${chunk.chunk_id}')">Delete</button>
                                 </div>
                             </div>
                             <div class="chunk-content">${displayContent}</div>
                             <div class="chunk-metadata">
+                                ${searchMeta.kb_name || searchMeta.embedding_model || searchMeta.vector_db ? `
+                                <div style="background: #e9ecef; padding: 8px 12px; border-radius: 6px; margin-bottom: 8px; font-size: 12px;">
+                                    <div style="display: flex; flex-wrap: wrap; gap: 12px;">
+                                        ${searchMeta.kb_name ? `<span><strong>KB:</strong> ${escapeHtml(searchMeta.kb_name)}</span>` : ''}
+                                        ${searchMeta.embedding_model ? `<span><strong>Embedding:</strong> ${escapeHtml(searchMeta.embedding_model)}</span>` : ''}
+                                        ${searchMeta.vector_db ? `<span><strong>Vector DB:</strong> ${escapeHtml(searchMeta.vector_db)}</span>` : ''}
+                                        ${searchMeta.search_method ? `<span><strong>Method:</strong> ${escapeHtml(searchMeta.search_method.toUpperCase())}</span>` : ''}
+                                        ${searchMeta.search_query ? `<span><strong>Query:</strong> "${escapeHtml(searchMeta.search_query)}"</span>` : ''}
+                                    </div>
+                                </div>
+                                ` : ''}
                                 <div class="metadata-item">
                                     <span class="metadata-label">Chunk:</span>
                                     <span class="metadata-value">${(metadata.chunk_index || 0) + 1} / ${metadata.total_chunks || 'N/A'}</span>
@@ -1350,13 +1523,15 @@
             const query = document.getElementById('expQueryInput').value.trim();
             const method = document.getElementById('expMethod').value;
             const topK = parseInt(document.getElementById('expTopK').value || '20', 10);
+            const kbSelect = document.getElementById('kbSelectDocs');
+            const kbId = kbSelect ? kbSelect.value : null;
             if (!query) { showAlert('error', 'Enter an experiment query.'); return; }
             const resBox = document.getElementById('expResults');
             resBox.innerHTML = '<div class="loading"><div class="loading-spinner"></div><p>Running search...</p></div>';
             try {
                 const resp = await fetch('/api/experiment/search_chunks', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ query, method, top_k: topK })
+                    body: JSON.stringify({ query, method, top_k: topK, kb_id: kbId })
                 });
                 const data = await resp.json();
                 if (!data.success) throw new Error(data.error || 'Search failed');
@@ -1414,6 +1589,8 @@
             const query = document.getElementById('expQueryInput').value.trim();
             const method = document.getElementById('expMethod').value;
             const topK = parseInt(document.getElementById('expTopK').value || '20', 10);
+            const kbSelect = document.getElementById('kbSelectDocs');
+            const kbId = kbSelect ? kbSelect.value : null;
             if (!query) { showAlert('error', 'Enter an experiment query.'); return; }
             if (selectedChunks.size === 0) { showAlert('error', 'Select at least one chunk from search results.'); return; }
             const resBox = document.getElementById('expResults');
@@ -1421,7 +1598,7 @@
             try {
                 const resp = await fetch('/api/experiment/rank_chunks', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ query, method, top_k: topK, chunk_ids: Array.from(selectedChunks) })
+                    body: JSON.stringify({ query, method, top_k: topK, chunk_ids: Array.from(selectedChunks), kb_id: kbId })
                 });
                 const data = await resp.json();
                 if (!data.success) throw new Error(data.error || 'Rank failed');
@@ -1479,8 +1656,142 @@
             resBox.innerHTML = html;
         }
 
+        async function loadKBsDocs() {
+            try {
+                const res = await fetch('/api/kb');
+                const data = await res.json();
+                const sel = document.getElementById('kbSelectDocs');
+                if (!data.success) { sel.innerHTML = '<option value="">Select Knowledge Base</option>'; return; }
+                const items = data.knowledge_bases || [];
+                sel.innerHTML = '<option value="">Select Knowledge Base</option>' + items.map(k => `<option value="${k.kb_id}">${k.name}</option>`).join('');
+            } catch (e) {
+                document.getElementById('kbSelectDocs').innerHTML = '<option value="">Select Knowledge Base</option>';
+            }
+        }
+
+        // Set up KB selector change event listener
+        const kbSelect = document.getElementById('kbSelectDocs');
+        if (kbSelect) {
+            kbSelect.addEventListener('change', () => {
+                checkUploadEnabled();
+                // Reload documents when KB selection changes
+                loadDocuments();
+            });
+        }
+        
         // Load documents on page load
+        loadKBsDocs().then(() => {
+            // Check upload state after KBs are loaded
+            checkUploadEnabled();
+        });
         loadDocuments();
+
+        async function loadKBOptions() {
+            try {
+                const res = await fetch('/api/kb/options');
+                const data = await res.json();
+                if (!data.success) throw new Error(data.error || 'Failed to load options');
+                kbOptions = data;
+                populateKBDropdowns();
+            } catch (e) {
+                console.error('Failed to load KB options:', e);
+            }
+        }
+        
+        function populateKBDropdowns() {
+            if (!kbOptions) return;
+            
+            // Populate embedding models
+            const embeddingSelect = document.getElementById('kbEmbedding');
+            embeddingSelect.innerHTML = '<option value="">Select embedding model</option>';
+            kbOptions.embedding_models.forEach(model => {
+                const option = document.createElement('option');
+                option.value = model.name;
+                option.textContent = `${model.name} - ${model.description}`;
+                embeddingSelect.appendChild(option);
+            });
+            
+            // Populate vector DB providers
+            const vdbSelect = document.getElementById('kbVDB');
+            vdbSelect.innerHTML = '<option value="">Select vector DB</option>';
+            kbOptions.vector_db_providers.forEach(provider => {
+                const option = document.createElement('option');
+                option.value = provider.name;
+                option.textContent = `${provider.name.toUpperCase()} - ${provider.description}`;
+                vdbSelect.appendChild(option);
+            });
+            
+            // Populate retrieval methods
+            const retrievalSelect = document.getElementById('kbRetrieval');
+            retrievalSelect.innerHTML = '<option value="">Select retrieval method</option>';
+            kbOptions.retrieval_methods.forEach(method => {
+                const option = document.createElement('option');
+                option.value = method.name;
+                option.textContent = `${method.name.toUpperCase()} - ${method.description}`;
+                retrievalSelect.appendChild(option);
+            });
+            
+            // Populate chunkers
+            const chunkerSelect = document.getElementById('kbChunkerType');
+            chunkerSelect.innerHTML = '<option value="">None (use default)</option>';
+            kbOptions.chunkers.forEach(chunker => {
+                const option = document.createElement('option');
+                option.value = chunker.name;
+                option.textContent = `${chunker.name} - ${chunker.description}`;
+                chunkerSelect.appendChild(option);
+            });
+        }
+        
+        function showCreateKB() {
+            if (!kbOptions) {
+                loadKBOptions().then(() => {
+                    document.getElementById('kbModal').classList.add('active');
+                });
+            } else {
+                document.getElementById('kbModal').classList.add('active');
+            }
+        }
+        
+        function hideCreateKB() {
+            document.getElementById('kbModal').classList.remove('active');
+        }
+        
+        async function createKB() {
+            const name = document.getElementById('kbName').value.trim() || 'Knowledge Base';
+            const embedding = document.getElementById('kbEmbedding').value.trim() || null;
+            const provider = document.getElementById('kbVDB').value || null;
+            const path = document.getElementById('kbVDBPath').value.trim() || null;
+            const retrieval = document.getElementById('kbRetrieval').value || null;
+            const chunkerType = document.getElementById('kbChunkerType').value.trim();
+            const chunkerParamsRaw = document.getElementById('kbChunkerParams').value.trim();
+            let chunker = null;
+            if (chunkerType) {
+                let params = {};
+                if (chunkerParamsRaw) {
+                    try { params = JSON.parse(chunkerParamsRaw); } catch (e) {}
+                }
+                chunker = { type: chunkerType, params };
+            }
+            try {
+                const res = await fetch('/api/kb', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name,
+                        embedding_model_name: embedding,
+                        vector_db_provider: provider,
+                        vector_db_path: path,
+                        retrieval_method: retrieval,
+                        chunker
+                    })
+                });
+                const data = await res.json();
+                if (!data.success) throw new Error(data.error || 'Create failed');
+                hideCreateKB();
+                await loadKBsDocs();
+            } catch (e) {
+                alert('Failed to create KB: ' + e.message);
+            }
+        }
     </script>
 </body>
 </html>

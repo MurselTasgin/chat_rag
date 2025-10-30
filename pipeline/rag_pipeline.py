@@ -8,7 +8,7 @@ from datetime import datetime
 from config import Settings
 from components.llm import BaseLLM, AzureOpenAILLM, OllamaLLM
 from components.embedding import BaseEmbedding, SentenceTransformerEmbedding
-from components.vectordb import BaseVectorDB, ChromaVectorDB
+from components.vectordb import BaseVectorDB, ChromaVectorDB, FaissVectorDB
 from components.chunker import BaseChunker, SemanticChunker
 from components.contextual_enhancer import ContextualRAGEnhancer
 from components.query_processor import QueryEnhancer
@@ -107,6 +107,13 @@ class RAGPipeline:
     
     def _create_vectordb(self) -> BaseVectorDB:
         """Create vector database instance from settings"""
+        provider = getattr(self.settings, 'vector_db_provider', 'chroma')
+        if provider == 'faiss':
+            # Use FAISS; path can be a folder per KB if provided via settings
+            return FaissVectorDB(
+                path=self.settings.vector_db_path
+            )
+        # Default Chroma
         return ChromaVectorDB(
             path=self.settings.vector_db_path,
             collection_name=self.settings.vector_db_collection_name,
@@ -118,6 +125,36 @@ class RAGPipeline:
     
     def _create_chunker(self) -> BaseChunker:
         """Create chunker instance from settings"""
+        # Check if KB-specific chunker config exists
+        kb_chunker_config = getattr(self.settings, 'kb_chunker_config', None)
+        if kb_chunker_config:
+            chunker_type = kb_chunker_config.get('type', 'SemanticChunker')
+            chunker_params = kb_chunker_config.get('params', {})
+            
+            # Use KB chunker params, falling back to settings defaults
+            chunk_size = chunker_params.get('chunk_size', self.settings.chunk_size)
+            chunk_overlap = chunker_params.get('chunk_overlap', self.settings.chunk_overlap)
+            min_chunk_size = chunker_params.get('min_chunk_size', self.settings.min_chunk_size)
+            
+            # Additional semantic chunker params
+            use_semantic_segmentation = chunker_params.get('use_semantic_segmentation', True)
+            use_embedding_segmentation = chunker_params.get('use_embedding_segmentation', False)
+            semantic_threshold = chunker_params.get('semantic_threshold', 0.6)
+            semantic_window = chunker_params.get('semantic_window', 1)
+            
+            # For now, only SemanticChunker is supported
+            if chunker_type == 'SemanticChunker':
+                return SemanticChunker(
+                    chunk_size=chunk_size,
+                    chunk_overlap=chunk_overlap,
+                    min_chunk_size=min_chunk_size,
+                    use_semantic_segmentation=use_semantic_segmentation,
+                    use_embedding_segmentation=use_embedding_segmentation,
+                    semantic_threshold=semantic_threshold,
+                    semantic_window=semantic_window
+                )
+        
+        # Default to settings-based chunker
         return SemanticChunker(
             chunk_size=self.settings.chunk_size,
             chunk_overlap=self.settings.chunk_overlap,
@@ -527,7 +564,20 @@ class RAGPipeline:
             )
             print(f"  ✓ Retrieved {len(merged_results)} candidate chunks")
             # Log full retrieval results (human-readable)
-            RAGLogger.log_retrieval_results(logger, clarified_query, merged_results)
+            # Gather retrieval configuration details
+            vectordb_name = self.vector_db.get_name() if hasattr(self.vector_db, 'get_name') else None
+            embedding_model_name = self.embedding_model.get_name() if hasattr(self.embedding_model, 'get_name') else None
+            reranker_name = self.reranker.get_name() if hasattr(self.reranker, 'get_name') else None
+            RAGLogger.log_retrieval_results(
+                logger, 
+                clarified_query, 
+                merged_results,
+                vectordb_name=vectordb_name,
+                embedding_model_name=embedding_model_name,
+                retrieval_method=final_method,
+                reranker_name=reranker_name,
+                top_k=final_top_k
+            )
 
             # Step 6: Rerank on all merged results using refined query (clarified_query), then take top-k
             # Always rerank in hybrid mode to utilize ensured inclusion mix
@@ -765,7 +815,19 @@ class RAGPipeline:
             return "I don't have enough information to answer this question. Please try rephrasing or ask something else."
         
         # Log retrieval results being used
-        RAGLogger.log_retrieval_results(logger, query, retrieval_results)
+        # Gather retrieval configuration details
+        vectordb_name = self.vector_db.get_name() if hasattr(self.vector_db, 'get_name') else None
+        embedding_model_name = self.embedding_model.get_name() if hasattr(self.embedding_model, 'get_name') else None
+        reranker_name = self.reranker.get_name() if hasattr(self.reranker, 'get_name') else None
+        # Note: retrieval_method and top_k not available in this context, so they're omitted
+        RAGLogger.log_retrieval_results(
+            logger, 
+            query, 
+            retrieval_results,
+            vectordb_name=vectordb_name,
+            embedding_model_name=embedding_model_name,
+            reranker_name=reranker_name
+        )
         
         # Format retrieved documents as context
         retrieved_context = self.get_retrieval_context(retrieval_results, include_metadata=True)

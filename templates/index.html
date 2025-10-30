@@ -295,6 +295,7 @@
         <div class="header">
             <h1>🤖 RAG Chat Assistant</h1>
             <div class="header-buttons">
+                <button class="btn btn-stats" onclick="showCreateKB()">➕ New KB</button>
                 <button class="btn btn-stats" onclick="location.href='/documents'">📚 Documents</button>
                 <button class="btn btn-stats" onclick="showStats()">📊 Stats</button>
                 <button class="btn btn-clear" onclick="clearConversation()">🗑️ Clear</button>
@@ -317,6 +318,7 @@
         </div>
 
         <div class="input-container">
+            <select id="kbSelect" style="padding: 10px 12px; border: 2px solid #e0e0e0; border-radius: 10px; font-size: 14px; outline: none; min-width: 200px;"></select>
             <input 
                 type="text" 
                 class="input-box" 
@@ -337,6 +339,51 @@
                 </div>
             </div>
             <button class="btn btn-clear" onclick="hideStats()" style="margin-top: 20px; width: 100%;">Close</button>
+        </div>
+    </div>
+
+    <!-- Create KB Modal -->
+    <div class="stats-modal" id="kbModal" onclick="hideCreateKB()">
+        <div class="stats-content" onclick="event.stopPropagation()">
+            <h2>➕ Create Knowledge Base</h2>
+            <div class="form-group">
+                <label class="form-label">Name</label>
+                <input id="kbName" type="text" style="width:100%; padding:10px; border:2px solid #e0e0e0; border-radius:8px;">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Embedding Model</label>
+                <select id="kbEmbedding" style="width:100%; padding:10px; border:2px solid #e0e0e0; border-radius:8px;">
+                    <option value="">Loading...</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Vector DB Provider</label>
+                <select id="kbVDB" style="width:100%; padding:10px; border:2px solid #e0e0e0; border-radius:8px;">
+                    <option value="">Loading...</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Vector DB Path</label>
+                <input id="kbVDBPath" type="text" placeholder="./chroma_db or ./faiss_db/mykb" style="width:100%; padding:10px; border:2px solid #e0e0e0; border-radius:8px;">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Retrieval Method</label>
+                <select id="kbRetrieval" style="width:100%; padding:10px; border:2px solid #e0e0e0; border-radius:8px;">
+                    <option value="">Loading...</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Chunker (optional)</label>
+                <select id="kbChunkerType" style="width:100%; padding:10px; border:2px solid #e0e0e0; border-radius:8px;">
+                    <option value="">Loading...</option>
+                </select>
+                <small>Params (JSON):</small>
+                <textarea id="kbChunkerParams" class="form-textarea" placeholder='{"chunk_size":300, "chunk_overlap":60}'></textarea>
+            </div>
+            <div style="display:flex; gap:10px; justify-content:flex-end;">
+                <button class="btn btn-clear" onclick="hideCreateKB()">Cancel</button>
+                <button class="btn btn-stats" onclick="createKB()">Create</button>
+            </div>
         </div>
     </div>
 
@@ -386,6 +433,7 @@
             const sendBtn = document.getElementById('sendBtn');
             const loading = document.getElementById('loading');
             const question = input.value.trim();
+            const kbId = document.getElementById('kbSelect').value || null;
 
             if (!question) return;
 
@@ -413,7 +461,8 @@
                         use_reranking: true,
                         retrieval_method: 'hybrid',
                         temperature: 0.3,
-                        max_tokens: 500
+                        max_tokens: 500,
+                        kb_id: kbId
                     })
                 });
 
@@ -507,8 +556,129 @@
             document.getElementById('statsModal').classList.remove('active');
         }
 
-        // Focus input on load
+        async function loadKBs() {
+            try {
+                const res = await fetch('/api/kb');
+                const data = await res.json();
+                const sel = document.getElementById('kbSelect');
+                if (!data.success) { sel.innerHTML = '<option value="">Default KB</option>'; return; }
+                const items = data.knowledge_bases || [];
+                sel.innerHTML = '<option value="">Default KB</option>' + items.map(k => `<option value="${k.kb_id}">${k.name}</option>`).join('');
+            } catch (e) {
+                document.getElementById('kbSelect').innerHTML = '<option value="">Default KB</option>';
+            }
+        }
+
+        // Focus input on load and load KBs
         document.getElementById('userInput').focus();
+        loadKBs();
+
+        let kbOptions = null;
+        
+        async function loadKBOptions() {
+            try {
+                const res = await fetch('/api/kb/options');
+                const data = await res.json();
+                if (!data.success) throw new Error(data.error || 'Failed to load options');
+                kbOptions = data;
+                populateKBDropdowns();
+            } catch (e) {
+                console.error('Failed to load KB options:', e);
+            }
+        }
+        
+        function populateKBDropdowns() {
+            if (!kbOptions) return;
+            
+            // Populate embedding models
+            const embeddingSelect = document.getElementById('kbEmbedding');
+            embeddingSelect.innerHTML = '<option value="">Select embedding model</option>';
+            kbOptions.embedding_models.forEach(model => {
+                const option = document.createElement('option');
+                option.value = model.name;
+                option.textContent = `${model.name} - ${model.description}`;
+                embeddingSelect.appendChild(option);
+            });
+            
+            // Populate vector DB providers
+            const vdbSelect = document.getElementById('kbVDB');
+            vdbSelect.innerHTML = '<option value="">Select vector DB</option>';
+            kbOptions.vector_db_providers.forEach(provider => {
+                const option = document.createElement('option');
+                option.value = provider.name;
+                option.textContent = `${provider.name.toUpperCase()} - ${provider.description}`;
+                vdbSelect.appendChild(option);
+            });
+            
+            // Populate retrieval methods
+            const retrievalSelect = document.getElementById('kbRetrieval');
+            retrievalSelect.innerHTML = '<option value="">Select retrieval method</option>';
+            kbOptions.retrieval_methods.forEach(method => {
+                const option = document.createElement('option');
+                option.value = method.name;
+                option.textContent = `${method.name.toUpperCase()} - ${method.description}`;
+                retrievalSelect.appendChild(option);
+            });
+            
+            // Populate chunkers
+            const chunkerSelect = document.getElementById('kbChunkerType');
+            chunkerSelect.innerHTML = '<option value="">None (use default)</option>';
+            kbOptions.chunkers.forEach(chunker => {
+                const option = document.createElement('option');
+                option.value = chunker.name;
+                option.textContent = `${chunker.name} - ${chunker.description}`;
+                chunkerSelect.appendChild(option);
+            });
+        }
+        
+        function showCreateKB() {
+            if (!kbOptions) {
+                loadKBOptions().then(() => {
+                    document.getElementById('kbModal').classList.add('active');
+                });
+            } else {
+                document.getElementById('kbModal').classList.add('active');
+            }
+        }
+        function hideCreateKB() {
+            document.getElementById('kbModal').classList.remove('active');
+        }
+        async function createKB() {
+            const name = document.getElementById('kbName').value.trim() || 'Knowledge Base';
+            const embedding = document.getElementById('kbEmbedding').value.trim() || null;
+            const provider = document.getElementById('kbVDB').value || null;
+            const path = document.getElementById('kbVDBPath').value.trim() || null;
+            const retrieval = document.getElementById('kbRetrieval').value || null;
+            const chunkerType = document.getElementById('kbChunkerType').value.trim();
+            const chunkerParamsRaw = document.getElementById('kbChunkerParams').value.trim();
+            let chunker = null;
+            if (chunkerType) {
+                let params = {};
+                if (chunkerParamsRaw) {
+                    try { params = JSON.parse(chunkerParamsRaw); } catch (e) {}
+                }
+                chunker = { type: chunkerType, params };
+            }
+            try {
+                const res = await fetch('/api/kb', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name,
+                        embedding_model_name: embedding,
+                        vector_db_provider: provider,
+                        vector_db_path: path,
+                        retrieval_method: retrieval,
+                        chunker
+                    })
+                });
+                const data = await res.json();
+                if (!data.success) throw new Error(data.error || 'Create failed');
+                hideCreateKB();
+                await loadKBs();
+            } catch (e) {
+                alert('Failed to create KB: ' + e.message);
+            }
+        }
     </script>
 </body>
 </html>

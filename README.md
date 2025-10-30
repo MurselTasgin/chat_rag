@@ -12,6 +12,12 @@ A modular, production-ready Retrieval-Augmented Generation (RAG) system with sop
 - **Intelligent Reranking**: LLM-based or Cross-Encoder reranking for optimal results
 - **Conversation Tracking**: Multi-turn conversation support with reference resolution
 - **Smart Search Strategy**: Automatically selects optimal retrieval method
+- **Multiple LLM Providers**: Support for Azure OpenAI and Ollama
+- **Multiple Vector DBs**: Support for ChromaDB and FAISS
+- **Knowledge Base Management**: Create and manage multiple knowledge bases
+- **Document Tracking**: Automatic tracking to avoid re-processing documents
+- **Web Interface**: Modern browser-based UI for document management and chat
+- **CLI Interface**: Command-line chat application with automatic ingestion
 - **Modular Architecture**: Pluggable components following SOLID principles
 
 ## Architecture
@@ -34,32 +40,58 @@ chat_rag/
 │   │   └── sentence_transformer_embedding.py
 │   ├── vectordb/         # Vector database providers
 │   │   ├── base.py       # Base vectordb interface
-│   │   └── chroma_vectordb.py
+│   │   ├── chroma_vectordb.py  # ChromaDB implementation
+│   │   └── faiss_vectordb.py   # FAISS implementation
 │   ├── llm/              # LLM providers
 │   │   ├── base.py       # Base LLM interface
-│   │   └── azure_openai_llm.py
+│   │   ├── azure_openai_llm.py  # Azure OpenAI implementation
+│   │   └── ollama_llm.py        # Ollama implementation
 │   ├── retriever/        # Retrieval strategies
 │   │   ├── base.py       # Base retriever interface
 │   │   └── hybrid_retriever.py
 │   ├── query_processor/  # Query understanding and enhancement
 │   │   └── query_enhancer.py
 │   ├── reranker/         # Result reranking
-│   │   └── reranker.py
+│   │   ├── base.py      # Base reranker interface
+│   │   ├── reranker.py  # LLM-based reranker
+│   │   └── cross_encoder_reranker.py  # Cross-encoder reranker
 │   ├── conversation/     # Conversation management
 │   │   └── conversation_manager.py
 │   ├── document_processor/ # Document preprocessing
 │   │   └── document_processor.py
+│   ├── parsers/            # Document parsers
+│   │   ├── base.py        # Base parser interface
+│   │   ├── pdf_parser.py  # PDF parsing
+│   │   ├── docx_parser.py # DOCX parsing
+│   │   ├── markdown_parser.py  # Markdown parsing
+│   │   ├── text_parser.py # Plain text parsing
+│   │   ├── image_parser.py # Image OCR parsing
+│   │   └── parser_factory.py  # Parser factory
 │   └── contextual_enhancer/ # Contextual enrichment
 │       └── contextual_enhancer.py
+│   └── knowledgebase/    # Knowledge base management
+│       └── manager.py    # Multi-KB manager
 ├── pipeline/             # Main orchestration
 │   ├── __init__.py
 │   └── rag_pipeline.py   # Main RAG pipeline
-├── main_new.py           # Example usage
+├── utils/                # Utilities
+│   ├── logger.py         # Logging utilities
+│   └── document_tracker.py # Document ingestion tracking
+├── main_new.py           # CLI chat application
+├── app.py                # Web application (Flask)
 ├── requirements.txt      # Dependencies
-└── .env.example         # Environment variables template
+└── env.example          # Environment variables template
 ```
 
 ## Installation
+
+### Prerequisites
+
+- Python 3.8 or higher
+- pip package manager
+- (Optional) Ollama installed locally if using Ollama LLM provider
+
+### Step-by-Step Installation
 
 1. **Clone the repository**
 ```bash
@@ -67,43 +99,91 @@ git clone <repository-url>
 cd chat_rag
 ```
 
-2. **Install dependencies**
+2. **Create a virtual environment (recommended)**
+```bash
+python -m venv venv
+
+# On macOS/Linux:
+source venv/bin/activate
+
+# On Windows:
+venv\Scripts\activate
+```
+
+3. **Install dependencies**
 ```bash
 pip install -r requirements.txt
 ```
 
-3. **Download NLTK data**
+4. **Download NLTK data**
 ```bash
 python setup_nltk.py
 ```
 
-4. **Configure environment**
+5. **Configure environment**
 ```bash
+# Copy the example environment file
 cp env.example .env
-# Edit .env with your Azure OpenAI credentials or set LLM_PROVIDER=ollama
+
+# Edit .env with your configuration
+# For Azure OpenAI: Set AZURE_ENDPOINT, AZURE_API_KEY, AZURE_DEPLOYMENT
+# For Ollama: Set LLM_PROVIDER=ollama and OLLAMA_MODEL
 ```
+
+### LLM Provider Setup
+
+**Option 1: Azure OpenAI (Cloud-based)**
+```env
+LLM_PROVIDER=azure
+AZURE_ENDPOINT=https://your-resource.openai.azure.com/
+AZURE_API_KEY=your-api-key
+AZURE_DEPLOYMENT=gpt-4o
+```
+
+**Option 2: Ollama (Local, Free)**
+```bash
+# Install Ollama first from https://ollama.ai
+# Pull a model
+ollama pull llama2
+
+# Configure in .env
+LLM_PROVIDER=ollama
+OLLAMA_MODEL=llama2
+OLLAMA_BASE_URL=http://localhost:11434
+```
+
+See [Ollama Guide](docs/OLLAMA_GUIDE.md) for more details.
 
 ## Configuration
 
-All configuration is centralized in `config/settings.py` and reads from `.env` file:
+All configuration is centralized in `config/settings.py` and reads from `.env` file. See `env.example` for all available options.
+
+### Key Configuration Options
 
 ```env
-# Azure OpenAI
+# LLM Provider (azure or ollama)
+LLM_PROVIDER=azure
+
+# Azure OpenAI (when LLM_PROVIDER=azure)
 AZURE_ENDPOINT=https://your-resource.openai.azure.com/
 AZURE_API_KEY=your-api-key
 AZURE_DEPLOYMENT=gpt-4o
 
+# Ollama (when LLM_PROVIDER=ollama)
+OLLAMA_MODEL=llama2
+OLLAMA_BASE_URL=http://localhost:11434
+
 # Embedding Model
 EMBEDDING_MODEL=all-MiniLM-L6-v2
 
-# Vector Database
+# Vector Database Provider (chroma or faiss)
+VECTOR_DB_PROVIDER=chroma
 VECTOR_DB_PATH=./chroma_db
-VECTOR_DB_COLLECTION=documents
 
 # Chunking
 CHUNK_SIZE=512
 CHUNK_OVERLAP=128
-MIN_CHUNK_SIZE=100
+MIN_CHUNK_SIZE=50
 
 # Retrieval
 DEFAULT_TOP_K=5
@@ -115,49 +195,251 @@ ENABLE_CONVERSATION=true
 MAX_CONVERSATION_HISTORY=10
 
 # Reranker Configuration
-# Options: 'llm' or 'cross_encoder'
-RERANKER_TYPE=cross_encoder
+RERANKER_TYPE=cross_encoder  # Options: 'llm' or 'cross_encoder'
 CROSS_ENCODER_MODEL=cross-encoder/ms-marco-MiniLM-L-6-v2
 
-# Document Parsing
-PDF_PARSER_BACKEND=pymupdf
-OCR_LANGUAGE=eng
+# Document Input
 DOCUMENTS_INPUT_PATH=./documents
 DOCUMENTS_RECURSIVE=true
+
+# Logging
+LOG_LEVEL=INFO
+LOG_TOKEN_USAGE=true
 ```
+
+For complete configuration options, see `env.example`.
+
+## Quick Start
+
+### 1. Installation (5 minutes)
+
+```bash
+# Clone and navigate
+git clone <repository-url>
+cd chat_rag
+
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Setup NLTK data
+python setup_nltk.py
+
+# Configure environment
+cp env.example .env
+# Edit .env with your credentials
+```
+
+### 2. Choose Your Interface
+
+**Option A: CLI Chat (Simple)**
+```bash
+# Add documents to ./documents folder
+# Start CLI application
+python main_new.py
+```
+
+**Option B: Web Application (Full Features)**
+```bash
+# Start web server
+python app.py
+# Open browser: http://localhost:5005
+```
+
+### 3. Start Chatting
+
+- CLI: Type questions directly in the terminal
+- Web: Use the browser interface to chat and manage documents
+
+See detailed usage sections below for more information.
 
 ## Usage
 
 ### CLI Chat Application
 
-Run the command-line interface for conversational chat:
+The command-line interface provides an interactive chat experience with automatic document ingestion.
 
+**Start the CLI application:**
 ```bash
 python main_new.py
 ```
 
-This will:
-1. Automatically ingest documents from the configured input folder (if not already ingested)
-2. Track ingested documents to avoid re-processing
-3. Start an interactive chat session
+**What happens when you start:**
+1. Configuration is loaded from `.env` file
+2. RAG pipeline is initialized with your settings
+3. Documents are automatically scanned from `DOCUMENTS_INPUT_PATH` (default: `./documents`)
+4. New documents are ingested (already processed documents are skipped)
+5. Interactive chat session begins
+
+**Available CLI Commands:**
+- Type your question and press Enter to chat
+- `help` - Show available commands
+- `stats` - Display document statistics (total documents, chunks, size, etc.)
+- `clear` - Clear conversation history
+- `exit` or `quit` - Exit the application
+
+**Example CLI Session:**
+```bash
+$ python main_new.py
+
+================================================================================
+  RAG CONVERSATIONAL CHAT
+  Retrieval-Augmented Generation with Document Ingestion
+================================================================================
+
+⚙️  Loading configuration...
+✓ Configuration loaded
+
+🚀 Initializing RAG pipeline...
+✓ Pipeline initialized
+
+================================================================================
+DOCUMENT INGESTION
+================================================================================
+
+📂 Scanning for documents in: ./documents
+   Found 2 new document(s)
+   Skipping 0 already ingested document(s)
+
+📥 Ingesting new documents...
+
+[1/2] Processing: report.pdf
+  ✓ Success: 15 chunks created
+
+[2/2] Processing: notes.pdf
+  ✓ Success: 22 chunks created
+
+✓ Successfully ingested 2 new document(s)
+
+📊 DOCUMENT STATISTICS
+================================================================================
+Total Documents: 2
+Total Chunks: 37
+Total Size: 2.45 MB
+
+================================================================================
+💬 CHAT MODE
+================================================================================
+
+You: What is the main topic?
+Assistant: The main topic covers project documentation and requirements...
+
+📚 Show sources? (y/n): y
+
+📄 Sources:
+1. report.pdf
+   Section: Introduction
+   Relevance Score: 0.856
+   Preview: The document discusses...
+
+You: 
+```
 
 ### Web Application
 
-Run the Flask web application for a modern browser-based chat interface:
+The web application provides a modern browser-based interface with advanced features.
 
+**Start the web application:**
 ```bash
 python app.py
 ```
 
-Then open your browser to: `http://localhost:5000`
+**Access the application:**
+Open your browser to: `http://localhost:5005`
 
-Features:
-- 🎨 Beautiful, modern UI with gradient design
-- 💬 Real-time conversational chat
+**Web Application Features:**
+- 🎨 Modern UI with gradient design
+- 💬 Real-time conversational chat with multi-turn support
 - 📚 Source citations with relevance scores
-- 📊 Document statistics
+- 📊 Document and knowledge base statistics
+- 📁 Document management (upload, view, delete)
+- 🔍 Chunk browsing and editing
+- 🗄️ Multiple knowledge base support
 - 🗑️ Clear conversation history
-- 📱 Responsive design
+- 📱 Fully responsive design
+
+**Important Notes:**
+- The web app runs on port **5005** (not 5000)
+- Documents can be managed through the web interface at `/documents`
+- Multiple knowledge bases can be created and managed
+- Each knowledge base can have its own vector database, embedding model, and chunker configuration
+
+### Knowledge Base Management
+
+The system supports multiple knowledge bases, each with its own configuration:
+
+**Creating a Knowledge Base (via Web UI):**
+1. Click "➕ New KB" button in the web interface
+2. Configure:
+   - Name: Descriptive name for the KB
+   - Vector DB Provider: chroma or faiss
+   - Embedding Model: Model name for embeddings
+   - Chunker Config: Chunking parameters
+   - Vector DB Path: Storage location (optional)
+
+**Using Knowledge Bases:**
+- Each KB has a unique ID
+- Documents are ingested into specific KBs
+- Queries can target specific KBs or use the default
+- KBs can be managed through the web interface
+
+**Programmatic KB Management:**
+```python
+from components.knowledgebase.manager import KnowledgeBaseManager
+
+kb_manager = KnowledgeBaseManager()
+
+# Create a new KB
+kb = kb_manager.create(
+    name="Technical Documentation",
+    vector_db_provider="faiss",
+    embedding_model_name="all-MiniLM-L6-v2"
+)
+
+# List all KBs
+all_kbs = kb_manager.list()
+
+# Get a specific KB
+kb_config = kb_manager.get(kb_id="abc12345")
+
+# Update a KB
+kb_manager.update(kb_id="abc12345", updates={"name": "Updated Name"})
+
+# Delete a KB
+kb_manager.delete(kb_id="abc12345")
+```
+
+### Document Ingestion
+
+**Automatic Ingestion (CLI):**
+- Documents in `./documents` folder are automatically ingested on startup
+- Already processed documents are skipped (tracked in `.ingested_documents.json`)
+
+**Manual Ingestion (Web UI):**
+- Navigate to `/documents` page
+- Upload documents directly through the web interface
+- Documents are processed and indexed automatically
+
+**Programmatic Ingestion:**
+```python
+from pipeline import RAGPipeline
+from config import Settings
+
+settings = Settings()
+pipeline = RAGPipeline(settings=settings)
+
+# Ingest from directory
+results = pipeline.ingest_documents_from_directory(
+    directory_path="./my_documents",
+    recursive=True
+)
+
+# Ingest single file
+chunks = pipeline.ingest_document_from_file("./documents/report.pdf")
+```
 
 ### Basic Usage
 

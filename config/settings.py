@@ -35,6 +35,7 @@ class Settings:
         # Vector DB Settings
         self.vector_db_path = os.getenv("VECTOR_DB_PATH", "./chroma_db")
         self.vector_db_collection_name = os.getenv("VECTOR_DB_COLLECTION", "documents")
+        self.vector_db_provider = os.getenv("VECTOR_DB_PROVIDER", "chroma")  # 'chroma' or 'faiss'
         # HNSW (Chroma) index params
         self.hnsw_m = int(os.getenv("HNSW_M", "64"))
         self.hnsw_ef_construction = int(os.getenv("HNSW_EF_CONSTRUCTION", "200"))
