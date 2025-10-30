@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RAG Chat Assistant</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica', 'Arial', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 900px;
+            height: 90vh;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            font-weight: 600;
+        }
+
+        .header-buttons {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+
+        .btn-clear {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+        }
+
+        .btn-clear:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        .btn-stats {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+        }
+
+        .btn-stats:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        .chat-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 30px;
+            background: #f8f9fa;
+        }
+
+        .message {
+            margin-bottom: 20px;
+            display: flex;
+            flex-direction: column;
+            animation: fadeIn 0.3s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .message.user {
+            align-items: flex-end;
+        }
+
+        .message.assistant {
+            align-items: flex-start;
+        }
+
+        .message-bubble {
+            max-width: 70%;
+            padding: 15px 20px;
+            border-radius: 18px;
+            word-wrap: break-word;
+            line-height: 1.6;
+        }
+
+        .message.user .message-bubble {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .message.assistant .message-bubble {
+            background: white;
+            color: #333;
+            border: 1px solid #e0e0e0;
+        }
+
+        .message-time {
+            font-size: 11px;
+            color: #999;
+            margin-top: 5px;
+            padding: 0 5px;
+        }
+
+        .sources {
+            margin-top: 10px;
+            padding: 10px;
+            background: #f0f0f0;
+            border-radius: 8px;
+            font-size: 12px;
+        }
+
+        .sources-title {
+            font-weight: 600;
+            margin-bottom: 5px;
+            color: #555;
+        }
+
+        .source-item {
+            margin: 5px 0;
+            padding: 5px;
+            background: white;
+            border-radius: 4px;
+        }
+
+        .input-container {
+            padding: 20px 30px;
+            background: white;
+            border-top: 1px solid #e0e0e0;
+            display: flex;
+            gap: 10px;
+        }
+
+        .input-box {
+            flex: 1;
+            padding: 15px 20px;
+            border: 2px solid #e0e0e0;
+            border-radius: 25px;
+            font-size: 15px;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+
+        .input-box:focus {
+            border-color: #667eea;
+        }
+
+        .btn-send {
+            padding: 15px 30px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 15px;
+            font-weight: 600;
+            transition: transform 0.2s;
+        }
+
+        .btn-send:hover {
+            transform: scale(1.05);
+        }
+
+        .btn-send:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .loading-dots {
+            display: inline-block;
+        }
+
+        .loading-dots span {
+            animation: blink 1.4s infinite;
+            font-size: 20px;
+            margin: 0 2px;
+        }
+
+        .loading-dots span:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+
+        .loading-dots span:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+
+        @keyframes blink {
+            0%, 80%, 100% { opacity: 0; }
+            40% { opacity: 1; }
+        }
+
+        .stats-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .stats-modal.active {
+            display: flex;
+        }
+
+        .stats-content {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            max-width: 500px;
+            width: 90%;
+        }
+
+        .stats-content h2 {
+            margin-bottom: 20px;
+            color: #333;
+        }
+
+        .stat-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .stat-label {
+            font-weight: 600;
+            color: #555;
+        }
+
+        .stat-value {
+            color: #667eea;
+            font-weight: 600;
+        }
+
+        .welcome-message {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
+
+        .welcome-message h2 {
+            margin-bottom: 10px;
+            color: #667eea;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 RAG Chat Assistant</h1>
+            <div class="header-buttons">
+                <button class="btn btn-stats" onclick="location.href='/documents'">📚 Documents</button>
+                <button class="btn btn-stats" onclick="showStats()">📊 Stats</button>
+                <button class="btn btn-clear" onclick="clearConversation()">🗑️ Clear</button>
+            </div>
+        </div>
+
+        <div class="chat-container" id="chatContainer">
+            <div class="welcome-message">
+                <h2>Welcome to RAG Chat!</h2>
+                <p>Ask me anything about the ingested documents.</p>
+            </div>
+        </div>
+
+        <div class="loading" id="loading">
+            <div class="loading-dots">
+                <span>●</span>
+                <span>●</span>
+                <span>●</span>
+            </div>
+        </div>
+
+        <div class="input-container">
+            <input 
+                type="text" 
+                class="input-box" 
+                id="userInput" 
+                placeholder="Type your question here..."
+                onkeypress="handleKeyPress(event)"
+            >
+            <button class="btn-send" onclick="sendMessage()" id="sendBtn">Send</button>
+        </div>
+    </div>
+
+    <div class="stats-modal" id="statsModal" onclick="hideStats()">
+        <div class="stats-content" onclick="event.stopPropagation()">
+            <h2>📊 Document Statistics</h2>
+            <div id="statsContent">
+                <div class="stat-item">
+                    <span class="stat-label">Loading...</span>
+                </div>
+            </div>
+            <button class="btn btn-clear" onclick="hideStats()" style="margin-top: 20px; width: 100%;">Close</button>
+        </div>
+    </div>
+
+    <script>
+        function getCurrentTime() {
+            const now = new Date();
+            return now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+        }
+
+        function addMessage(text, isUser, sources = null) {
+            const chatContainer = document.getElementById('chatContainer');
+            const welcomeMsg = chatContainer.querySelector('.welcome-message');
+            if (welcomeMsg) {
+                welcomeMsg.remove();
+            }
+
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${isUser ? 'user' : 'assistant'}`;
+            
+            let messageHTML = `
+                <div class="message-bubble">${text}</div>
+                <div class="message-time">${getCurrentTime()}</div>
+            `;
+
+            if (sources && sources.length > 0) {
+                messageHTML += `
+                    <div class="sources">
+                        <div class="sources-title">📚 Sources:</div>
+                        ${sources.slice(0, 3).map((source, idx) => `
+                            <div class="source-item">
+                                <strong>${idx + 1}. ${source.document}</strong>
+                                ${source.section ? `<br><small>Section: ${source.section}</small>` : ''}
+                                <br><small>Relevance: ${(source.score * 100).toFixed(1)}%</small>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+
+            messageDiv.innerHTML = messageHTML;
+            chatContainer.appendChild(messageDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById('userInput');
+            const sendBtn = document.getElementById('sendBtn');
+            const loading = document.getElementById('loading');
+            const question = input.value.trim();
+
+            if (!question) return;
+
+            // Disable input
+            input.disabled = true;
+            sendBtn.disabled = true;
+
+            // Add user message
+            addMessage(question, true);
+            input.value = '';
+
+            // Show loading
+            loading.classList.add('active');
+
+            try {
+                const response = await fetch('/api/query', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        question: question,
+                        top_k: 5,
+                        use_query_expansion: true,
+                        use_reranking: true,
+                        retrieval_method: 'hybrid',
+                        temperature: 0.3,
+                        max_tokens: 500
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    addMessage(data.answer, false, data.sources);
+                } else {
+                    addMessage(`Error: ${data.error}`, false);
+                }
+            } catch (error) {
+                addMessage(`Error: ${error.message}`, false);
+            } finally {
+                loading.classList.remove('active');
+                input.disabled = false;
+                sendBtn.disabled = false;
+                input.focus();
+            }
+        }
+
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') {
+                sendMessage();
+            }
+        }
+
+        async function clearConversation() {
+            if (!confirm('Clear conversation history?')) return;
+
+            try {
+                const response = await fetch('/api/clear', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+
+                const data = await response.json();
+                if (data.success) {
+                    const chatContainer = document.getElementById('chatContainer');
+                    chatContainer.innerHTML = `
+                        <div class="welcome-message">
+                            <h2>Conversation Cleared</h2>
+                            <p>Start a new conversation!</p>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                alert('Error clearing conversation: ' + error.message);
+            }
+        }
+
+        async function showStats() {
+            const modal = document.getElementById('statsModal');
+            const content = document.getElementById('statsContent');
+            
+            modal.classList.add('active');
+            content.innerHTML = '<div class="stat-item"><span class="stat-label">Loading...</span></div>';
+
+            try {
+                const response = await fetch('/api/stats');
+                const data = await response.json();
+
+                if (data.success) {
+                    const stats = data.stats;
+                    content.innerHTML = `
+                        <div class="stat-item">
+                            <span class="stat-label">Total Documents</span>
+                            <span class="stat-value">${stats.total_documents}</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Total Chunks</span>
+                            <span class="stat-value">${stats.total_chunks}</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Vector DB Chunks</span>
+                            <span class="stat-value">${stats.vector_db_chunks}</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Total Size</span>
+                            <span class="stat-value">${stats.total_size_mb} MB</span>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                content.innerHTML = `<div class="stat-item"><span class="stat-label">Error loading stats</span></div>`;
+            }
+        }
+
+        function hideStats() {
+            document.getElementById('statsModal').classList.remove('active');
+        }
+
+        // Focus input on load
+        document.getElementById('userInput').focus();
+    </script>
+</body>
+</html>
+

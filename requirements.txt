@@ -1,0 +1,21 @@
+python-dotenv
+sentence-transformers
+openai
+chromadb
+rank-bm25
+nltk
+numpy
+requests  # For Ollama LLM
+
+# Document Parsing
+pymupdf  # PDF parsing (recommended)
+# unstructured[pdf]  # Alternative PDF parsing (uncomment if needed)
+python-docx  # DOCX parsing
+Pillow  # Image handling
+pytesseract  # OCR for images
+markdown  # Markdown parsing
+beautifulsoup4  # HTML parsing (for markdown stripping)
+
+# Web Framework
+flask
+flask-cors

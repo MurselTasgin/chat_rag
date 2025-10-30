@@ -1,0 +1,230 @@
+# /Users/murseltasgin/projects/chat_rag/utils/document_tracker.py
+"""
+Document tracking system to avoid re-ingesting documents
+"""
+import json
+import os
+import hashlib
+from typing import Dict, Set, Optional, List
+from datetime import datetime
+
+
+class DocumentTracker:
+    """Tracks ingested documents to avoid re-processing"""
+    
+    def __init__(self, tracking_file: str = ".ingested_documents.json"):
+        """
+        Initialize document tracker
+        
+        Args:
+            tracking_file: Path to the tracking file
+        """
+        self.tracking_file = tracking_file
+        self.ingested_docs: Dict[str, Dict] = {}
+        self._load_tracking_data()
+    
+    def _load_tracking_data(self):
+        """Load tracking data from file"""
+        if os.path.exists(self.tracking_file):
+            try:
+                with open(self.tracking_file, 'r') as f:
+                    self.ingested_docs = json.load(f)
+            except Exception as e:
+                print(f"Warning: Could not load tracking file: {e}")
+                self.ingested_docs = {}
+        else:
+            self.ingested_docs = {}
+    
+    def _save_tracking_data(self):
+        """Save tracking data to file"""
+        try:
+            with open(self.tracking_file, 'w') as f:
+                json.dump(self.ingested_docs, f, indent=2)
+        except Exception as e:
+            print(f"Warning: Could not save tracking file: {e}")
+    
+    def _compute_file_hash(self, file_path: str) -> str:
+        """
+        Compute hash of file content
+        
+        Args:
+            file_path: Path to file
+        
+        Returns:
+            SHA256 hash of file content
+        """
+        sha256_hash = hashlib.sha256()
+        try:
+            with open(file_path, "rb") as f:
+                # Read in chunks to handle large files
+                for byte_block in iter(lambda: f.read(4096), b""):
+                    sha256_hash.update(byte_block)
+            return sha256_hash.hexdigest()
+        except Exception as e:
+            print(f"Warning: Could not compute hash for {file_path}: {e}")
+            return ""
+    
+    def is_document_ingested(self, file_path: str) -> bool:
+        """
+        Check if document has already been ingested
+        
+        Args:
+            file_path: Path to the document
+        
+        Returns:
+            True if document is already ingested and unchanged
+        """
+        abs_path = os.path.abspath(file_path)
+        
+        if abs_path not in self.ingested_docs:
+            return False
+        
+        # Check if file still exists
+        if not os.path.exists(file_path):
+            return False
+        
+        # Check if file has been modified (compare hash)
+        current_hash = self._compute_file_hash(file_path)
+        stored_hash = self.ingested_docs[abs_path].get('file_hash', '')
+        
+        return current_hash == stored_hash
+    
+    def mark_as_ingested(
+        self,
+        file_path: str,
+        doc_id: str,
+        chunk_count: int,
+        metadata: Optional[Dict] = None
+    ):
+        """
+        Mark a document as ingested
+        
+        Args:
+            file_path: Path to the document
+            doc_id: Document ID
+            chunk_count: Number of chunks created
+            metadata: Additional metadata
+        """
+        abs_path = os.path.abspath(file_path)
+        file_hash = self._compute_file_hash(file_path)
+        
+        self.ingested_docs[abs_path] = {
+            'doc_id': doc_id,
+            'file_hash': file_hash,
+            'chunk_count': chunk_count,
+            'file_size': os.path.getsize(file_path),
+            'ingested_at': datetime.now().isoformat(),
+            'metadata': metadata or {}
+        }
+        
+        self._save_tracking_data()
+    
+    def get_ingested_files(self) -> Set[str]:
+        """
+        Get set of all ingested file paths
+        
+        Returns:
+            Set of absolute file paths
+        """
+        return set(self.ingested_docs.keys())
+    
+    def get_file_info(self, file_path: str) -> Optional[Dict]:
+        """
+        Get information about an ingested file
+        
+        Args:
+            file_path: Path to the file
+        
+        Returns:
+            Dictionary with file information or None
+        """
+        abs_path = os.path.abspath(file_path)
+        return self.ingested_docs.get(abs_path)
+    
+    def remove_document(self, file_path: str):
+        """
+        Remove a document from tracking
+        
+        Args:
+            file_path: Path to the document
+        """
+        abs_path = os.path.abspath(file_path)
+        if abs_path in self.ingested_docs:
+            del self.ingested_docs[abs_path]
+            self._save_tracking_data()
+    
+    def get_statistics(self) -> Dict:
+        """
+        Get statistics about ingested documents
+        
+        Returns:
+            Dictionary with statistics
+        """
+        if not self.ingested_docs:
+            return {
+                'total_documents': 0,
+                'total_chunks': 0,
+                'total_size_bytes': 0
+            }
+        
+        return {
+            'total_documents': len(self.ingested_docs),
+            'total_chunks': sum(doc['chunk_count'] for doc in self.ingested_docs.values()),
+            'total_size_bytes': sum(doc['file_size'] for doc in self.ingested_docs.values()),
+            'oldest_ingestion': min(doc['ingested_at'] for doc in self.ingested_docs.values()),
+            'latest_ingestion': max(doc['ingested_at'] for doc in self.ingested_docs.values())
+        }
+    
+    def clear_all(self):
+        """Clear all tracking data"""
+        self.ingested_docs = {}
+        self._save_tracking_data()
+
+    def get_all_documents(self) -> List[Dict]:
+        """
+        Get list of all ingested documents with their metadata
+
+        Returns:
+            List of document dictionaries
+        """
+        documents = []
+        for file_path, doc_data in self.ingested_docs.items():
+            documents.append({
+                'file_path': file_path,
+                'file_name': os.path.basename(file_path),
+                'doc_id': doc_data.get('doc_id', ''),
+                'chunk_count': doc_data.get('chunk_count', 0),
+                'file_size': doc_data.get('file_size', 0),
+                'ingested_at': doc_data.get('ingested_at', ''),
+                'file_hash': doc_data.get('file_hash', ''),
+                'metadata': doc_data.get('metadata', {})
+            })
+
+        # Sort by ingestion date (newest first)
+        documents.sort(key=lambda x: x['ingested_at'], reverse=True)
+        return documents
+
+    def get_document_by_doc_id(self, doc_id: str) -> Optional[Dict]:
+        """
+        Get document information by doc_id
+
+        Args:
+            doc_id: Document ID to search for
+
+        Returns:
+            Document dictionary or None if not found
+        """
+        for file_path, doc_data in self.ingested_docs.items():
+            if doc_data.get('doc_id') == doc_id:
+                return {
+                    'file_path': file_path,
+                    'file_name': os.path.basename(file_path),
+                    'doc_id': doc_data.get('doc_id', ''),
+                    'chunk_count': doc_data.get('chunk_count', 0),
+                    'file_size': doc_data.get('file_size', 0),
+                    'ingested_at': doc_data.get('ingested_at', ''),
+                    'file_hash': doc_data.get('file_hash', ''),
+                    'metadata': doc_data.get('metadata', {})
+                }
+        return None
+
